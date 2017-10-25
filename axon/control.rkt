@@ -29,7 +29,7 @@
   (λ () (let ([msg (take)]) (emit) (on-take msg))))
 
 (define-filter (sink on-take) ()
-  (λ () (let ([msg (take)]) (on-take msg) (pong))))
+  (λ () (let ([msg (take)]) (on-take msg))))
 
 (define-filter (source on-loop) ()
   (λ () (let ([msg (on-loop)]) (emit msg))))
@@ -43,13 +43,25 @@
   (serve (λ (msg) (foldl app msg πs))
          (λ () (for-each on-stop πs))))
 
-(define (bridge π1 π2 [on-stop stop])
+(define (bridge π1 π2 [on-stop stop] [on-die void])
   (filter
    (λ ()
      (define π1-evt (λ _ (seq-evt (recv-evt π1) (λ (msg) (give-evt π2 msg)) π1-evt)))
      (define π2-evt (λ _ (seq-evt (recv-evt π2) (λ (msg) (give-evt π1 msg)) π2-evt)))
      (sync (π1-evt) (π2-evt) π1 π2))
-   (λ () (on-stop π1) (on-stop π2))))
+   (λ () (on-stop π1) (on-stop π2))
+   (λ () (on-die π1) (on-die π2))))
+
+(define (proxy π [on-take fix] [on-emit fix] [on-stop void] [on-die void])
+  (filter
+   (λ ()
+     (define do-take
+       (λ _ (seq-evt (take-evt) (λ (msg) (give-evt π (on-take msg))) do-take)))
+     (define do-emit
+       (λ _ (seq-evt (recv-evt π) (λ (msg) (emit-evt (on-emit msg))) do-emit)))
+     (sync (do-take) (do-emit) π))
+   (λ () (stop π) (on-stop))
+   (λ () (kill π) (on-die))))
 
 ;; Generators
 
@@ -107,9 +119,10 @@
      (check >= (- (current-milliseconds) ts) 100)))
 
   (test-case
-   "A sink-filter emits void on take."
+   "A sink-filter emits nothing."
    (let ([π (sink random)])
-     (for ([i 10]) (check-pred void? (π (+ i 1))))))
+     (for ([i 10]) (give π i))
+     (check-pred eof? (sync/timeout 0.1 (recv-evt π)))))
 
   (test-case
    "A source-filter takes no input."
@@ -181,6 +194,12 @@
      (check-pred alive? π1)
      (check-pred alive? π2)
      (check-pred dead? Π)))
+
+  (test-case
+   "A proxy intercepts messages for another filter."
+   (let ([π (proxy (serve (λ (x) (* 2 x))) add1 sub1)])
+     (for ([i 10])
+       (check = (π i) (- (* 2 (+ 1 i)) 1)))))
 
   ;; Generators
 

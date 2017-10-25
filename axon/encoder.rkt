@@ -16,7 +16,7 @@
 (define-filter (encode printer out-port)
     ([on-take (manage (λ (msg) (with-handlers ([exn:fail? die])
                                  (printer msg out-port))))])
-  (λ () (sync (seq-evt (take-evt) (λ (msg) (on-take msg) (emit-evt)))
+  (λ () (sync (seq-evt (take-evt) on-take)
               (seq-evt (port-closed-evt out-port) die)))
   (λ () (close-output-port out-port)))
 
@@ -41,7 +41,8 @@
   (test-case
    "An encoder prints to its out-port."
    (let ([π ((encoder write) (open-output-string))])
-     (for ([i 10]) (π i))
+     (for ([i 10]) (give π i))
+     (shutdown π)
      (check equal? (get-output-string (encoder-out-port π)) "0123456789")))
 
   (test-case

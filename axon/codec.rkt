@@ -15,8 +15,8 @@
          axon/stream)
 
 (define (codec printer parser in-port out-port)
-  (stream (encode printer out-port)
-          (decode parser in-port)))
+  (stream ((encoder printer) out-port)
+          ((decoder parser) in-port)))
 
 (define (make-codec-factory printer parser)
   (λ (in-port out-port)
@@ -32,10 +32,10 @@
   (decoder-parser (codec-decoder σ)))
 
 (define (codec-in-port σ)
-  (decoder-in-port (stream-source σ)))
+  (decoder-in-port (codec-decoder σ)))
 
 (define (codec-out-port σ)
-  (encoder-out-port (stream-sink σ)))
+  (encoder-out-port (codec-encoder σ)))
 
 (define (close σ)
   (give σ eof)
@@ -108,7 +108,7 @@
      (check-false (port-closed? out-port))))
 
   (test-case
-   "A codec dies when its ports close."
+   "A codec dies when its in-port closes."
    (let* ([in-port (open-input-string "1")]
           [out-port (open-output-string)]
           [σ (codec write read in-port out-port)])
@@ -116,6 +116,19 @@
      (check-false (port-closed? in-port))
      (check-false (port-closed? out-port))
      (close-input-port in-port)
+     (sync σ)
+     (check-pred dead? σ)
+     (check-pred port-closed? in-port)
+     (check-pred port-closed? out-port)))
+
+  (test-case
+   "A codec dies when its out-port closes."
+   (let* ([in-port (open-input-string "1")]
+          [out-port (open-output-string)]
+          [σ (codec write read in-port out-port)])
+     (check-pred alive? σ)
+     (check-false (port-closed? in-port))
+     (check-false (port-closed? out-port))
      (close-output-port out-port)
      (sync σ)
      (check-pred dead? σ)
@@ -149,7 +162,22 @@
      (check-pred alive? (codec-encoder σ))))
 
   (test-case
-   "A codec dies when its encoder and decoder die."
+   "A codec dies when its encoder dies."
+   (let* ([in-port (open-input-string "1")]
+          [out-port (open-output-string)]
+          [σ (codec write read in-port out-port)])
+     (check-pred alive? σ)
+     (check-pred alive? (codec-encoder σ))
+     (check-pred alive? (codec-decoder σ))
+     (kill (codec-encoder σ))
+     (kill (codec-decoder σ))
+     (sync σ)
+     (check-pred dead? σ)
+     (check-pred dead? (codec-encoder σ))
+     (check-pred dead? (codec-decoder σ))))
+  
+  (test-case
+   "A codec dies when its decoder dies."
    (let* ([in-port (open-input-string "1")]
           [out-port (open-output-string)]
           [σ (codec write read in-port out-port)])

@@ -13,20 +13,16 @@
          axon/internal
          axon/process)
 
-(define (stream π-sink π-source)
+(define (stream π-sink π-source [on-stop void] [on-die void])
   (commanded
     (filter (λ ()
               (define sink-evt
                 (λ _ (seq-evt (take-evt) (λ (msg) (give π-sink msg)) sink-evt)))
               (define source-evt
-                (λ _
-                  (seq-evt (recv-evt π-source)
-                    (λ (msg)
-                      (printf "RECV ~a\n" msg)
-                      emit-evt)
-                    source-evt)))
-              (sync (sink-evt) (source-evt) (all-evts π-sink π-source)))
-            (λ () (stop π-sink) (stop π-source)))
+                (λ _ (seq-evt (recv-evt π-source) emit-evt source-evt)))
+              (sync (sink-evt) (source-evt) π-sink π-source))
+            (λ () (stop π-sink) (stop π-source) (on-stop))
+            (λ () (on-die)))
     (bind ([SINK π-sink]
            [SOURCE π-source]))))
 
@@ -48,6 +44,7 @@
      (for ([i 10]) (give σ i))
      (for ([_ 10]) (check = (recv σ) 1))
      (give σ eof)
+     (sync (stream-sink σ))
      (check equal? L '(0 1 2 3 4 5 6 7 8 9))))
 
   (test-case
@@ -73,12 +70,23 @@
      (check-pred dead? σ)))
 
   (test-case
-   "A stream dies when its sink and source die."
-   (let ([σ (stream (sink die) (source (λ () (take) (die))))])
+   "A stream dies when its sink dies."
+   (let ([σ (stream (sink die) (source take))])
      (check-pred alive? (stream-sink σ))
      (check-pred alive? (stream-source σ))
      (check-pred alive? σ)
      (ping (stream-sink σ))
+     (sync σ)
+     (check-pred dead? (stream-sink σ))
+     (check-pred dead? (stream-source σ))
+     (check-pred dead? σ)))
+
+  (test-case
+   "A stream dies when its source dies."
+   (let ([σ (stream (sink void) (source (λ () (take) (die))))])
+     (check-pred alive? (stream-sink σ))
+     (check-pred alive? (stream-source σ))
+     (check-pred alive? σ)
      (ping (stream-source σ))
      (sync σ)
      (check-pred dead? (stream-sink σ))

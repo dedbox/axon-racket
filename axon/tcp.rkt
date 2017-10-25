@@ -13,30 +13,50 @@
          axon/filter
          axon/internal
          axon/process
+         (prefix-in list: racket/list)
          racket/tcp)
+
+;; Client
 
 (define (tcp-client codec-factory [port-no 3600] [hostname "localhost"])
   (define σ
     (call-with-values (λ () (tcp-connect hostname port-no)) codec-factory))
-  (commanded σ (bind ([PORT-NO port-no]
-                      [HOSTNAME hostname])
+  (define addr
+    (call-with-values (λ () (tcp-addresses (codec-in-port σ) #t)) list))
+  (commanded σ (bind ([ADDRESSES addr])
                      ([msg (command σ msg)]))))
 
-(define (tcp-client-port-no π)
-  (command π 'PORT-NO))
+(define (tcp-client-addresses σ)
+  (command σ 'ADDRESSES))
 
-(define (tcp-client-hostname π)
-  (command π 'HOSTNAME))
+(define (tcp-client-local-address σ)
+  (list:take 2 (tcp-client-addresses σ)))
+
+(define (tcp-client-remote-address σ)
+  (list:drop 2 (tcp-client-addresses σ)))
+
+(define (tcp-client-local-hostname σ)
+  (list:first (tcp-client-addresses σ)))
+
+(define (tcp-client-local-port-no σ)
+  (list:second (tcp-client-addresses σ)))
+
+(define (tcp-client-remote-hostname σ)
+  (list:third (tcp-client-addresses σ)))
+
+(define (tcp-client-remote-port-no σ)
+  (list:fourth (tcp-client-addresses σ)))
+
+;; Server
 
 (define (tcp-server codec-factory [port-no 3600] [hostname #f])
   (define listener (tcp-listen port-no 10 #t hostname))
-  (define π
+  (commanded
     (source (λ () (call-with-values (λ () (tcp-accept listener)) codec-factory))
             void
-            (λ () (tcp-close listener))))
-  (commanded π (bind ([PORT-NO port-no]
-                      [HOSTNAME hostname])
-                     ([msg (command π msg)]))))
+            (λ () (tcp-close listener)))
+    (bind ([PORT-NO port-no]
+           [HOSTNAME hostname]))))
 
 (define (tcp-server-port-no π)
   (command π 'PORT-NO))
@@ -44,39 +64,37 @@
 (define (tcp-server-hostname π)
   (command π 'HOSTNAME))
 
+;; Service
+
 (define (tcp-service codec-factory peer-factory [port-no 3600] [hostname #f])
   (define server (tcp-server codec-factory port-no hostname))
   (define peers (make-hash))
 
-  (define (peer σ addr)
-    (let ([addr (call-with-values (λ () (tcp-addresses (codec-in-port σ) #t)) list)]
-          [π (bridge (peer-factory) σ)])
-      (process (λ () (sync π))
-               (λ () (stop π) (stop σ))
-               (λ () (kill π) (kill σ) (hash-remove! peers addr)))))
-
   (define (start-peer σ)
+    (define in-port (codec-in-port σ))
     (define addr
-      (call-with-values (λ () (tcp-addresses (codec-in-port σ) #t)) list))
-    (printf "START ~a\n" addr)
-    (hash-set! peers addr (peer σ addr)))
+      (call-with-values (λ () (tcp-addresses in-port #t)) list))
+    (hash-set! peers addr (bridge (peer-factory addr) σ)))
 
   (define (stop-peer addr)
-    (printf "STOP ~a\n" addr)
-    (or (and (hash-has-key? peers addr) (stop (hash-ref peers addr)) #t) #f))
+    (or (and (hash-has-key? peers addr)
+             (stop (hash-ref peers addr))
+             (hash-remove! peers addr)
+             #t) #f))
 
   (define (kill-peer addr)
-    (printf "KILL ~a\n" addr)
-    (or (and (hash-has-key? peers addr) (kill (hash-ref peers addr)) #t) #f))
+    (or (and (hash-has-key? peers addr)
+             (kill (hash-ref peers addr))
+             (hash-remove! peers addr)
+             #t) #f))
 
-  (define π
-    (repeat (λ () (sync (handle-evt (recv-evt server) start-peer)))
-            (λ () (for-each stop-peer (hash-keys peers)))
-            (λ () (kill server) (hash-clear! peers))))
-
-  (commanded π (bind ([PEERS (hash-keys peers)]
-                      [(STOP ,addr) (stop-peer addr)]
-                      [(KILL ,addr) (kill-peer addr)]))))
+  (commanded
+    (filter (λ () (forever (start-peer (recv server))))
+            (λ () (kill server) (for-each stop-peer (hash-keys peers)))
+            (λ () (kill server) (hash-clear! peers)))
+    (bind ([PEERS (hash-keys peers)]
+           [(STOP ,addr) (stop-peer addr)]
+           [(KILL ,addr) (kill-peer addr)]))))
 
 (define (tcp-service-peers π)
   (command π 'PEERS))
@@ -93,7 +111,7 @@
   (require rackunit)
 
   (test-case
-   "A TCP client and server can exchange messages over a TCP connection."
+   "A TCP client and server can exchange messages."
    (let* ([srv (tcp-server sexp-codec-factory)]
           [cli (tcp-client sexp-codec-factory)]
           [peer (recv srv)])
@@ -142,24 +160,32 @@
      (stop svc)
      (check-exn exn:fail:network? (λ () (sync (tcp-client sexp-codec-factory))))))
 
-  ;; (test-case
-  ;;  "A TCP service stops its peers when it stops."
-  ;;  (let ([svc (tcp-service sexp-codec-factory (λ () (serve add1)))]
-  ;;        [clis (for/list ([_ 10]) (tcp-client sexp-codec-factory))])
-  ;;    (for ([cli clis]) (check-pred alive? cli))
-  ;;    (stop svc)
-  ;;    (sleep 0.1)
-  ;;    (map alive? clis)))
+  (test-case
+   "A TCP service stops its peers when it stops."
+   (let ([svc (tcp-service sexp-codec-factory (λ _ (serve add1)))]
+         [clis (for/list ([_ 10]) (tcp-client sexp-codec-factory))])
+     (for ([cli clis]) (check-pred alive? cli))
+     (sleep 0.5)
+     (stop svc)
+     (sleep 0.5)
+     (for ([cli clis]) (check-pred dead? cli))))
 
-  ;; (test-case "A TCP service does not kill its peers when it dies.")
+  (test-case
+   "A TCP service does not kill its peers when it dies."
+   (let ([svc (tcp-service sexp-codec-factory (λ _ (serve add1)))]
+         [clis (for/list ([_ 10]) (tcp-client sexp-codec-factory))])
+     (for ([cli clis]) (check-pred alive? cli))
+     (sleep 0.5)
+     (kill svc)
+     (sleep 0.5)
+     (for ([cli clis]) (check-pred alive? cli) (kill cli))))
 
-  ;; (test-case
-  ;;  "A TCP service bridges a TCP codec and a filter."
-  ;;  (let ([svc (tcp-service sexp-codec-factory (λ () (serve (λ (x) (displayln x) (add1 x)))))]
-  ;;        [cli (tcp-client sexp-codec-factory)])
-  ;;    (for ([i 10])
-  ;;      (give cli i)
-  ;;      (displayln (recv cli)))
-  ;;    (stop svc)))
-
-  )
+  (test-case
+   "A TCP service bridges filters and TCP codecs."
+   (let ([svc (tcp-service sexp-codec-factory (λ _ (serve add1)))]
+         [clis (for/list ([_ 10]) (tcp-client sexp-codec-factory))])
+     (for ([i 10]
+           [cli clis])
+       (give cli i)
+       (check = (recv cli) (+ 1 i)))
+     (stop svc))))
