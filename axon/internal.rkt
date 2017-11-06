@@ -44,6 +44,10 @@
 (define (seq-evt evt . rest)
   (foldl (λ (proc evt*) (replace-evt evt* proc)) evt rest))
 
+(define-syntax-rule (loop-evt evt args body ...)
+  (letrec ([the-evt (λ _ (seq-evt evt (λ args body ...) the-evt))])
+    (the-evt)))
+
 (define-syntax bind
   (syntax-rules ()
     [(_ qs)    (bind qs () eof)]
