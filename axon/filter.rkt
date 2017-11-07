@@ -21,7 +21,9 @@
 (define (filter on-start [on-stop void] [on-die void])
   (parameterize ([current-in-channel (make-channel)]
                  [current-out-channel (make-channel)])
-    (-filter (process-thread (process on-start on-stop on-die))
+    (define π (process on-start on-stop on-die))
+    (-filter (process-thread π)
+             (process-exception π)
              (current-in-channel)
              (current-out-channel))))
 

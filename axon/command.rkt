@@ -17,6 +17,7 @@
 
 (define (commanded π bindings)
   (-commanded (process-thread π)
+              (process-exception π)
               (filter-in-channel π)
               (filter-out-channel π)
               bindings))

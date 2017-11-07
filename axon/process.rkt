@@ -16,12 +16,13 @@
 (define quit (λ _ ((current-quit-continuation))))
 (define die (λ _ ((current-die-continuation))))
 
-(struct process (thread)
+(struct process (thread exception)
         #:name -process
         #:constructor-name -process
         #:property prop:evt (λ (π) (dead-evt π)))
 
 (define (process on-start [on-stop void] [on-die void])
+  (define exn-box (box eof))
   (define ready (make-semaphore 0))
   (define done (string->unreadable-symbol "done"))
   (define done? (λ (msg) (eq? msg done)))
@@ -35,7 +36,8 @@
                          [current-quit-continuation quit-continuation])
             (parameterize-break #f
               (with-handlers ([exn:break:hang-up? quit]
-                              [exn:break:terminate? die])
+                              [exn:break:terminate? die]
+                              [(λ _ #t) (λ (e) (set-box! exn-box e) (die))])
                 (semaphore-post ready)
                 (parameterize-break #t
                   (on-start))))))
@@ -45,7 +47,7 @@
       done))
 
   (begin0
-      (-process (thread start))
+      (-process (thread start) exn-box)
     (semaphore-wait ready)))
 
 (define (alive? π)
@@ -55,7 +57,11 @@
   (not (alive? π)))
 
 (define (dead-evt π)
-  (handle-evt (process-thread π) void))
+  (handle-evt (process-thread π)
+    (λ _
+      (define exn (unbox (process-exception π)))
+      (unless (eof? exn)
+        (raise exn)))))
 
 (define deadlock (λ _ (sync never-evt)))
 
