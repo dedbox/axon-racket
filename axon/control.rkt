@@ -118,8 +118,8 @@
   (test-case
    "A sink-filter emits nothing."
    (let ([π (sink random)])
-     (for ([i 10]) (give π i))
-     (check-pred eof? (sync/timeout 0.1 (recv-evt π)))))
+     (for ([i 10]) (give π (+ i 1)))
+     (check-false (sync/timeout 0.1 (recv-evt π)))))
 
   (test-case
    "A source-filter takes no input."
