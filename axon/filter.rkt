@@ -72,21 +72,21 @@
 (define (pong)
   (emit))
 
-;; filter composition
+;; composable filter boilerplate
 (define-syntax define-filter
   (syntax-rules ()
-    [(define-filter (name n-args ...) (let-args ...) on-loop)
-     (define-filter (name n-args ...) (let-args ...) on-loop void)]
+    [(define-filter (name n-args ...) (let-args ...) on-start)
+     (define-filter (name n-args ...) (let-args ...) on-start void)]
 
-    [(define-filter (name n-args ...) (let-args ...) on-loop on-stop)
-     (define-filter (name n-args ...) (let-args ...) on-loop on-stop void)]
+    [(define-filter (name n-args ...) (let-args ...) on-start on-stop)
+     (define-filter (name n-args ...) (let-args ...) on-start on-stop void)]
 
-    [(define-filter (name n-args ...) (let-args ...) on-loop on-stop on-die)
+    [(define-filter (name n-args ...) (let-args ...) on-start on-stop on-die)
      (define (name n-args ... [pre-stop void] [pre-die void])
-       (let* (let-args ...)
-         (filter (λ () (forever (on-loop)))
-           (λ () (pre-stop) (on-stop))
-           (λ () (pre-die) (on-die)))))]))
+       (let (let-args ...)
+         (filter (λ () (on-start))
+                 (λ () (pre-stop) (on-stop))
+                 (λ () (pre-die) (on-die)))))]))
 
 ;;; Unit Tests
 

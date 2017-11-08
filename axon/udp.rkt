@@ -20,20 +20,22 @@
 (define-filter (udp-encode printer sock)
     ([out-port (open-output-bytes)])
   (λ ()
-    (match-define (list msg-host msg-port msg) (take))
-    (printer msg out-port)
-    (udp-send-to sock msg-host msg-port (get-output-bytes out-port #t)))
+    (forever
+      (match-define (list msg-host msg-port msg) (take))
+      (printer msg out-port)
+      (udp-send-to sock msg-host msg-port (get-output-bytes out-port #t))))
   void
   (λ () (close-output-port out-port)))
 
 (define-filter (udp-decode parser sock)
     ([buf (make-bytes #xFFFF)])
   (λ ()
-    (define-values (buf-len buf-host buf-port) (udp-receive! sock buf))
-    (define in-port (open-input-string (bytes->string/utf-8 buf #f 0 buf-len)))
-    (define msg (parser in-port))
-    (close-input-port in-port)
-    (emit (list buf-host buf-port msg))))
+    (forever
+      (define-values (buf-len buf-host buf-port) (udp-receive! sock buf))
+      (define in-port (open-input-string (bytes->string/utf-8 buf #f 0 buf-len)))
+      (define msg (parser in-port))
+      (close-input-port in-port)
+      (emit (list buf-host buf-port msg)))))
 
 (define (udp-socket->stream printer parser sock [on-stop void] [on-die void])
   (stream (udp-encode printer sock)
@@ -47,17 +49,6 @@
   (commanded σ (bind ([ADDRESS (udp-addresses sock #t)])
                      ([msg (command σ msg)]))))
 
-(define (udp-client printer parser [port-no 3600] [hostname "localhost"])
-  (define σ (udp-stream printer parser hostname port-no #f 0))
-  (commanded (proxy σ
-                    (λ (msg) (list hostname port-no msg))
-                    (match-lambda [(list _ _ msg) msg]))
-             (λ (msg) (command σ msg))))
-
-(define (udp-server printer parser [port-no 3600] [hostname #f])
-  (define σ (udp-stream printer parser hostname port-no hostname port-no))
-  (commanded σ (λ (msg) (command σ msg))))
-
 (define (udp-stream-addresses σ)
   (call-with-values (λ () (command σ 'ADDRESS)) list))
 
@@ -66,6 +57,27 @@
 
 (define (udp-stream-remote-address σ)
   (list:drop (udp-stream-addresses σ) 2))
+
+(define (udp-peer printer parser [open-port 3600] [open-host "localhost"])
+  (udp-stream printer parser open-host open-port #f 0))
+
+(define (udp-client printer parser [port-no 3600] [hostname "localhost"])
+  (define σ (udp-peer printer parser port-no hostname))
+  (commanded (proxy σ
+                    (λ (msg) (list hostname port-no msg))
+                    (match-lambda [(list _ _ msg) msg]))
+             (λ (msg) (command σ msg))))
+
+(define udp-client-addresses udp-stream-addresses)
+(define udp-client-local-address udp-stream-local-address)
+(define udp-client-remote-address udp-stream-remote-address)
+
+(define (udp-server printer parser [port-no 3600] [hostname #f])
+  (udp-stream printer parser hostname port-no hostname port-no))
+
+(define udp-server-addresses udp-stream-addresses)
+(define udp-server-local-address udp-stream-local-address)
+(define udp-server-remote-address udp-stream-remote-address)
 
 ;;; Unit Tests
 

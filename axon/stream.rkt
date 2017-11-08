@@ -38,7 +38,7 @@
   (test-process
    "A stream is a sink and a source."
    L push
-   (let ([σ (stream (sink (manage push)) (const 1))])
+   (let ([σ (stream (sink (manage push)) (source (λ () 1)))])
      (for ([i 10]) (give σ i))
      (for ([_ 10]) (check = (recv σ) 1))
      (give σ eof)

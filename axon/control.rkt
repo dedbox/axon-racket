@@ -13,35 +13,16 @@
 
 ;; Primitives
 
-(define-filter (repeat on-loop) ()
-  (λ () (on-loop)))
-
-(define-filter (latch on-ping [on-result void]) ()
-  (λ () (take) (let ([msg (on-ping)]) (on-result msg))))
-
-(define-filter (trigger on-take) ()
-  (λ () (let ([msg (take)]) (on-take msg))))
-
-(define-filter (serve on-take) ()
-  (λ () (let* ([request (take)] [reply (on-take request)]) (emit reply))))
-
-(define-filter (async on-take) ()
-  (λ () (let ([msg (take)]) (emit) (on-take msg))))
-
-(define-filter (sink on-take) ()
-  (λ () (let ([msg (take)]) (on-take msg))))
-
-(define-filter (source on-loop) ()
-  (λ () (let ([msg (on-loop)]) (emit msg))))
-
-(define-filter (node bindings) ()
-  (λ () (let* ([request (take)] [reply (bindings request)]) (emit reply))))
+(define-filter (serve on-take) () (λ () (forever (emit (on-take (take))))))
+(define-filter (sink on-take) () (λ () (forever (on-take (take)))))
+(define-filter (source on-loop) () (λ () (forever (emit (on-loop)))))
 
 ;; Composites
 
-(define (pipe πs [on-stop stop])
-  (serve (λ (msg) (foldl app msg πs))
-         (λ () (for-each on-stop πs))))
+(define (pipe πs [on-stop stop] [on-die void])
+  (serve (λ (msg) (foldl (λ (π . args) (apply π args)) msg πs))
+         (λ () (for-each on-stop πs))
+         (λ () (for-each on-die πs))))
 
 (define (bridge π1 π2 [on-stop stop] [on-die void])
   (filter
@@ -60,11 +41,6 @@
    (λ () (stop π) (on-stop))
    (λ () (kill π) (on-die))))
 
-;; Generators
-
-(define (const val)
-  (source (λ () val)))
-
 ;; Helpers
 
 (define (manage on-take [on-eof quit])
@@ -82,38 +58,9 @@
   ;; Primitives
 
   (test-case
-   "A repeat-filter loops unconditionally."
-   (let ([π (repeat (λ () (emit 1)))])
-     (for ([_ 10]) (check = (recv π) 1))))
-
-  (test-process
-   "A latch-filter loops when pinged."
-   L push
-   (let ([π (latch (λ () (push 1)))])
-     (for ([_ 10]) (ping π))
-     (check equal? L '(1 1 1 1 1 1 1 1 1 1))))
-
-  (test-process
-   "A trigger-filter loops on take."
-   L push
-   (let ([π (trigger (manage push))])
-     (for ([i 10]) (give π i))
-     (shutdown π)
-     (check equal? L '(0 1 2 3 4 5 6 7 8 9))))
-
-  (test-case
    "A serve-filter applies what it takes to a procedure and emits the result."
    (let ([π (serve add1)])
      (for ([i 10]) (check = (π i) (+ i 1)))))
-
-  (test-case
-   "An async-filter applies what it takes to a procedure asynchronously."
-   (let* ([ts (current-milliseconds)]
-          [π (async (λ _ (sleep 0.1) (die)))])
-     (π)
-     (check < (- (current-milliseconds) ts) 100)
-     (sync π)
-     (check >= (- (current-milliseconds) ts) 100)))
 
   (test-case
    "A sink-filter emits nothing."
@@ -125,13 +72,6 @@
    "A source-filter takes no input."
    (let ([π (source (λ () 2))])
      (for ([_ 10]) (check = (recv π) 2))))
-
-  (test-case
-   "A node-filter remaps a message according to its bindings."
-   (let ([π (node (bind ([A 5] [B 4] [C 3])))])
-     (check = (π 'C) 3)
-     (check = (π 'B) 4)
-     (check = (π 'A) 5)))
 
   ;; Composites
 
@@ -196,11 +136,4 @@
    "A proxy intercepts messages for another filter."
    (let ([π (proxy (serve (λ (x) (* 2 x))) add1 sub1)])
      (for ([i 10])
-       (check = (π i) (- (* 2 (+ 1 i)) 1)))))
-
-  ;; Generators
-
-  (test-case
-   "A const-filter emits a constant value."
-   (let ([π (const 5)])
-     (for ([_ 10]) (check = (recv π) 5)))))
+       (check = (π i) (- (* 2 (+ 1 i)) 1))))))

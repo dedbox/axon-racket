@@ -16,7 +16,6 @@
 (define eof? eof-object?)
 
 (define (fix x) x)
-(define (app f . args) (apply f args))
 (define (maybe x some none) (if (eof? x) (none) (some x)))
 (define (maybe-λ f some none) (λ (x) (maybe (f x) some none)))
 
