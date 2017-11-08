@@ -61,6 +61,10 @@
 (define (udp-peer printer parser [open-port 3600] [open-host "localhost"])
   (udp-stream printer parser open-host open-port #f 0))
 
+(define udp-peer-addresses udp-stream-addresses)
+(define udp-peer-local-address udp-stream-local-address)
+(define udp-peer-remote-address udp-stream-remote-address)
+
 (define (udp-client printer parser [port-no 3600] [hostname "localhost"])
   (define σ (udp-peer printer parser port-no hostname))
   (commanded (proxy σ
