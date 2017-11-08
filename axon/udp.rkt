@@ -37,6 +37,8 @@
       (close-input-port in-port)
       (emit (list buf-host buf-port msg)))))
 
+;; Stream
+
 (define (udp-socket->stream printer parser sock [on-stop void] [on-die void])
   (stream (udp-encode printer sock)
           (udp-decode parser sock)
@@ -58,12 +60,16 @@
 (define (udp-stream-remote-address σ)
   (list:drop (udp-stream-addresses σ) 2))
 
+;; Peer
+
 (define (udp-peer printer parser [open-port 3600] [open-host "localhost"])
   (udp-stream printer parser open-host open-port #f 0))
 
 (define udp-peer-addresses udp-stream-addresses)
 (define udp-peer-local-address udp-stream-local-address)
 (define udp-peer-remote-address udp-stream-remote-address)
+
+;; Client
 
 (define (udp-client printer parser [port-no 3600] [hostname "localhost"])
   (define σ (udp-peer printer parser port-no hostname))
@@ -75,6 +81,8 @@
 (define udp-client-addresses udp-stream-addresses)
 (define udp-client-local-address udp-stream-local-address)
 (define udp-client-remote-address udp-stream-remote-address)
+
+;; Server
 
 (define (udp-server printer parser [port-no 3600] [hostname #f])
   (udp-stream printer parser hostname port-no hostname port-no))
