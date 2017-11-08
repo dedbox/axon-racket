@@ -66,7 +66,8 @@
 
 ;; Service
 
-(define (tcp-service codec-factory peer-factory [port-no 3600] [hostname #f])
+(define (tcp-service codec-factory peer-factory [port-no 3600] [hostname #f]
+                     [on-stop void] [on-die void])
   (define server (tcp-server codec-factory port-no hostname))
   (define peers (make-hash))
 
@@ -90,8 +91,8 @@
 
   (commanded
     (filter (λ () (forever (start-peer (recv server))))
-            (λ () (kill server) (for-each stop-peer (hash-keys peers)))
-            (λ () (kill server) (hash-clear! peers)))
+            (λ () (kill server) (for-each stop-peer (hash-keys peers)) (on-stop))
+            (λ () (kill server) (hash-clear! peers) (on-die)))
     (bind ([PEERS (hash-keys peers)]
            [(STOP ,addr) (stop-peer addr)]
            [(KILL ,addr) (kill-peer addr)]))))
