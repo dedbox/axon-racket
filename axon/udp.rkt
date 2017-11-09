@@ -21,8 +21,12 @@
     ([out-port (open-output-bytes)])
   (λ ()
     (forever
-      (match-define (list msg-host msg-port msg) (take))
-      (printer msg out-port)
+      (define msg (take))
+      (define msg-addr (list:first msg))
+      (define msg-data (list:second msg))
+      (define msg-host (list:first msg-addr))
+      (define msg-port (list:second msg-addr))
+      (printer msg-data out-port)
       (udp-send-to sock msg-host msg-port (get-output-bytes out-port #t))))
   void
   (λ () (close-output-port out-port)))
@@ -35,7 +39,7 @@
       (define in-port (open-input-string (bytes->string/utf-8 buf #f 0 buf-len)))
       (define msg (parser in-port))
       (close-input-port in-port)
-      (emit (list buf-host buf-port msg)))))
+      (emit (list (list buf-host buf-port) msg)))))
 
 ;; Stream
 
@@ -74,8 +78,8 @@
 (define (udp-client printer parser [port-no 3600] [hostname "localhost"])
   (define σ (udp-peer printer parser port-no hostname))
   (commanded (proxy σ
-                    (λ (msg) (list hostname port-no msg))
-                    (match-lambda [(list _ _ msg) msg]))
+                    (λ (msg) (list (list hostname port-no) msg))
+                    (match-lambda [(list _ msg) msg]))
              (λ (msg) (command σ msg))))
 
 (define udp-client-addresses udp-stream-addresses)
@@ -103,15 +107,15 @@
    (let ([srv (udp-server sexp-printer sexp-parser)]
          [cli (udp-client sexp-printer sexp-parser)])
      (give cli 0)
-     (match-define (list cli-host cli-port _) (recv srv))
+     (define cli-addr (list:first (recv srv)))
      (for ([i 10])
        (give cli i)
-       (check = (caddr (recv srv)) i))
+       (check equal? (recv srv) (list cli-addr i)))
      (for ([i 10])
-       (give srv (list cli-host cli-port i))
+       (give srv (list cli-addr i))
        (check = (recv cli) i))
      (for ([i 10]) (give cli i))
-     (for ([j 10]) (check equal? (recv srv) (list cli-host cli-port j)))
+     (for ([j 10]) (check equal? (recv srv) (list cli-addr j)))
      (stop cli)
      (stop srv)))
 
