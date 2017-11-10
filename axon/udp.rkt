@@ -56,7 +56,7 @@
                      ([msg (command σ msg)]))))
 
 (define (udp-stream-addresses σ)
-  (call-with-values (λ () (command σ 'ADDRESS)) list))
+  (apply-values (command σ 'ADDRESS) list))
 
 (define (udp-stream-local-address σ)
   (list:take (udp-stream-addresses σ) 2))

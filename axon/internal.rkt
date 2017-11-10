@@ -15,6 +15,9 @@
 
 (define eof? eof-object?)
 
+(define-syntax-rule (apply-values expr proc)
+  (call-with-values (λ () expr) proc))
+
 (define (fix x) x)
 (define (maybe x some none) (if (eof? x) (none) (some x)))
 (define (maybe-λ f some none) (λ (x) (maybe (f x) some none)))

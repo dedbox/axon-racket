@@ -18,11 +18,9 @@
 
 ;; Client
 
-(define (tcp-client codec-factory [port-no 3600] [hostname "localhost"])
-  (define σ
-    (call-with-values (λ () (tcp-connect hostname port-no)) codec-factory))
-  (define addr
-    (call-with-values (λ () (tcp-addresses (codec-in-port σ) #t)) list))
+(define (tcp-client codec-factory [server-addr '("localhost" 3600)])
+  (define σ (apply-values (apply tcp-connect server-addr) codec-factory))
+  (define addr (apply-values (tcp-addresses (codec-in-port σ) #t) list))
   (commanded σ (bind ([ADDRESSES addr])
                      ([msg (command σ msg)]))))
 
@@ -52,7 +50,7 @@
 (define (tcp-server codec-factory [port-no 3600] [hostname #f])
   (define listener (tcp-listen port-no 10 #t hostname))
   (commanded
-    (source (λ () (call-with-values (λ () (tcp-accept listener)) codec-factory))
+    (source (λ () (apply-values (tcp-accept listener) codec-factory))
             void
             (λ () (tcp-close listener)))
     (bind ([PORT-NO port-no]
@@ -73,8 +71,7 @@
 
   (define (start-peer σ)
     (define in-port (codec-in-port σ))
-    (define addr
-      (call-with-values (λ () (tcp-addresses in-port #t)) list))
+    (define addr (apply-values (tcp-addresses in-port #t) list))
     (hash-set! peers addr (bridge (peer-factory addr) σ)))
 
   (define (stop-peer addr)
