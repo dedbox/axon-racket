@@ -90,7 +90,10 @@
              #t) #f))
 
   (commanded
-    (filter (λ () (forever (start-peer (recv server))))
+    (filter (λ ()
+              (forever
+                (sync (handle-evt (recv-evt server) start-peer)
+                      (apply choice-evt (hash-values peers)))))
             on-stop
             (λ () (kill server) (for-each stop-peer (hash-keys peers)) (on-die)))
     (bind ([PEERS (hash-keys peers)]
