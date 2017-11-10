@@ -13,7 +13,6 @@
          axon/filter
          axon/internal
          axon/process
-         (prefix-in list: racket/list)
          racket/tcp)
 
 ;; Client
@@ -28,45 +27,50 @@
   (command σ 'ADDRESSES))
 
 (define (tcp-client-local-address σ)
-  (list:take 2 (tcp-client-addresses σ)))
+  (define addr (tcp-client-addresses σ))
+  (list (car addr) (cadr addr)))
 
 (define (tcp-client-remote-address σ)
-  (list:drop 2 (tcp-client-addresses σ)))
+  (cddr (tcp-client-addresses σ)))
 
 (define (tcp-client-local-hostname σ)
-  (list:first (tcp-client-addresses σ)))
+  (car (tcp-client-addresses σ)))
 
 (define (tcp-client-local-port-no σ)
-  (list:second (tcp-client-addresses σ)))
+  (cadr (tcp-client-addresses σ)))
 
 (define (tcp-client-remote-hostname σ)
-  (list:third (tcp-client-addresses σ)))
+  (caddr (tcp-client-addresses σ)))
 
 (define (tcp-client-remote-port-no σ)
-  (list:fourth (tcp-client-addresses σ)))
+  (cadddr (tcp-client-addresses σ)))
 
 ;; Server
 
-(define (tcp-server codec-factory [port-no 3600] [hostname #f])
-  (define listener (tcp-listen port-no 10 #t hostname))
+(define (tcp-server codec-factory [server-addr '(#f 3600)])
+  (define server-host (car server-addr))
+  (define server-port (cadr server-addr))
+  (define listener (tcp-listen server-port 10 #t server-host))
   (commanded
     (source (λ () (apply-values (tcp-accept listener) codec-factory))
             void
             (λ () (tcp-close listener)))
-    (bind ([PORT-NO port-no]
-           [HOSTNAME hostname]))))
+    (bind ([ADDR server-addr]))))
 
-(define (tcp-server-port-no π)
-  (command π 'PORT-NO))
+(define (tcp-server-address π)
+  (command π 'ADDR))
 
 (define (tcp-server-hostname π)
-  (command π 'HOSTNAME))
+  (car (tcp-server-address π)))
+
+(define (tcp-server-port-no π)
+  (cadr (tcp-server-address π)))
 
 ;; Service
 
-(define (tcp-service codec-factory peer-factory [port-no 3600] [hostname #f]
+(define (tcp-service codec-factory peer-factory [server-addr '(#f 3600)]
                      [on-stop void] [on-die void])
-  (define server (tcp-server codec-factory port-no hostname))
+  (define server (tcp-server codec-factory server-addr))
   (define peers (make-hash))
 
   (define (start-peer σ)

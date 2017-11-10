@@ -13,7 +13,6 @@
          axon/internal
          axon/process
          axon/stream
-         (prefix-in list: racket/list)
          racket/match
          racket/udp)
 
@@ -22,10 +21,10 @@
   (λ ()
     (forever
       (define msg (take))
-      (define msg-addr (list:first msg))
-      (define msg-data (list:second msg))
-      (define msg-host (list:first msg-addr))
-      (define msg-port (list:second msg-addr))
+      (define msg-addr (car msg))
+      (define msg-data (cadr msg))
+      (define msg-host (car msg-addr))
+      (define msg-port (cadr msg-addr))
       (printer msg-data out-port)
       (udp-send-to sock msg-host msg-port (get-output-bytes out-port #t))))
   void
@@ -48,9 +47,9 @@
           (udp-decode parser sock)
           (λ () (udp-close sock))))
 
-(define (udp-stream printer parser open-host open-port bind-host bind-port)
-  (define sock (udp-open-socket open-host open-port))
-  (udp-bind! sock bind-host bind-port)
+(define (udp-stream printer parser open-addr bind-addr)
+  (define sock (apply udp-open-socket open-addr))
+  (apply udp-bind! (cons sock bind-addr))
   (define σ (udp-socket->stream printer parser sock))
   (commanded σ (bind ([ADDRESS (udp-addresses sock #t)])
                      ([msg (command σ msg)]))))
@@ -59,15 +58,16 @@
   (apply-values (command σ 'ADDRESS) list))
 
 (define (udp-stream-local-address σ)
-  (list:take (udp-stream-addresses σ) 2))
+  (define addr (udp-stream-addresses σ))
+  (list (car addr) (cadr addr)))
 
 (define (udp-stream-remote-address σ)
-  (list:drop (udp-stream-addresses σ) 2))
+  (cddr (udp-stream-addresses σ)))
 
 ;; Peer
 
-(define (udp-peer printer parser [open-port 3600] [open-host "localhost"])
-  (udp-stream printer parser open-host open-port #f 0))
+(define (udp-peer printer parser [open-addr '("localhost" 3600)])
+  (udp-stream printer parser open-addr '(#f 0)))
 
 (define udp-peer-addresses udp-stream-addresses)
 (define udp-peer-local-address udp-stream-local-address)
@@ -75,11 +75,11 @@
 
 ;; Client
 
-(define (udp-client printer parser [port-no 3600] [hostname "localhost"])
-  (define σ (udp-peer printer parser port-no hostname))
+(define (udp-client printer parser [server-addr '("localhost" 3600)])
+  (define σ (udp-peer printer parser server-addr))
   (commanded (proxy σ
-                    (λ (msg) (list (list hostname port-no) msg))
-                    (match-lambda [(list _ msg) msg]))
+                    (λ (msg) (list server-addr msg))
+                    (λ (msg) (cadr msg)))
              (λ (msg) (command σ msg))))
 
 (define udp-client-addresses udp-stream-addresses)
@@ -88,8 +88,8 @@
 
 ;; Server
 
-(define (udp-server printer parser [port-no 3600] [hostname #f])
-  (udp-stream printer parser hostname port-no hostname port-no))
+(define (udp-server printer parser [server-addr '(#f 3600)])
+  (udp-stream printer parser server-addr server-addr))
 
 (define udp-server-addresses udp-stream-addresses)
 (define udp-server-local-address udp-stream-local-address)
@@ -107,7 +107,7 @@
    (let ([srv (udp-server sexp-printer sexp-parser)]
          [cli (udp-client sexp-printer sexp-parser)])
      (give cli 0)
-     (define cli-addr (list:first (recv srv)))
+     (define cli-addr (car (recv srv)))
      (for ([i 10])
        (give cli i)
        (check equal? (recv srv) (list cli-addr i)))
