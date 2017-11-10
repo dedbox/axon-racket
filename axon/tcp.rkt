@@ -91,8 +91,8 @@
 
   (commanded
     (filter (λ () (forever (start-peer (recv server))))
-            (λ () (kill server) (for-each stop-peer (hash-keys peers)) (on-stop))
-            (λ () (kill server) (hash-clear! peers) (on-die)))
+            on-stop
+            (λ () (kill server) (for-each stop-peer (hash-keys peers)) (on-die)))
     (bind ([PEERS (hash-keys peers)]
            [(STOP ,addr) (stop-peer addr)]
            [(KILL ,addr) (kill-peer addr)]))))
@@ -162,24 +162,14 @@
      (check-exn exn:fail:network? (λ () (sync (tcp-client sexp-codec-factory))))))
 
   (test-case
-   "A TCP service stops its peers when it stops."
-   (let ([svc (tcp-service sexp-codec-factory (λ _ (serve add1)))]
-         [clis (for/list ([_ 10]) (tcp-client sexp-codec-factory))])
-     (for ([cli clis]) (check-pred alive? cli))
-     (sleep 0.5)
-     (stop svc)
-     (sleep 0.5)
-     (for ([cli clis]) (check-pred dead? cli))))
-
-  (test-case
-   "A TCP service does not kill its peers when it dies."
+   "A TCP service kills its peers when it dies."
    (let ([svc (tcp-service sexp-codec-factory (λ _ (serve add1)))]
          [clis (for/list ([_ 10]) (tcp-client sexp-codec-factory))])
      (for ([cli clis]) (check-pred alive? cli))
      (sleep 0.5)
      (kill svc)
      (sleep 0.5)
-     (for ([cli clis]) (check-pred alive? cli) (kill cli))))
+     (for ([cli clis]) (check-pred dead? cli))))
 
   (test-case
    "A TCP service bridges filters and TCP codecs."
