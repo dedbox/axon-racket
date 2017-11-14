@@ -16,8 +16,8 @@
 (define (stream π-sink π-source [on-stop void] [on-die void])
   (commanded
     (filter (λ ()
-              (sync (loop-evt (take-evt) (λ (msg) (give-evt π-sink msg)))
-                    (loop-evt (recv-evt π-source) (λ (msg) (emit-evt msg)))
+              (sync (loop-evt take-evt (λ (msg) (give-evt π-sink msg)))
+                    (loop-evt (λ () (recv-evt π-source)) emit-evt)
                     π-sink π-source))
             (λ () (stop π-sink) (stop π-source) (on-stop))
             (λ () (on-die)))

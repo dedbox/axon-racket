@@ -16,8 +16,8 @@
 (define-filter (encode printer out-port)
     ([on-take (manage (λ (msg) (with-handlers ([exn:fail? die])
                                  (printer msg out-port))))])
-  (λ () (forever (sync (seq-evt (take-evt) on-take)
-                       (seq-evt (port-closed-evt out-port) die))))
+  (λ () (forever (sync (seq-evt take-evt on-take)
+                       (seq-evt (λ () (port-closed-evt out-port)) die))))
   (λ () (close-output-port out-port)))
 
 (define (encoder printer)

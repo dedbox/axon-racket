@@ -43,12 +43,26 @@
       (replace-evt (apply choice-evt (map (λ (e) (handle-evt e (λ _ e))) es))
                    (λ (e) (apply all-evts (remq e es))))))
 
-(define (seq-evt evt . rest)
-  (foldl (λ (proc evt*) (replace-evt evt* proc)) evt rest))
+(define (seq-evt* maker0 makers)
+  (foldl (λ (maker evt) (replace-evt evt maker)) (maker0) makers))
 
-(define (loop-evt evt . rest)
-  (define loop (λ _ (apply seq-evt (append (list* evt rest) (list loop)))))
+(define (loop-evt* maker0 makers)
+  (define loop (λ _ (seq-evt* maker0 (append makers (list loop)))))
   (loop))
+
+(define (seq-evt maker0 . makers)
+  (seq-evt* maker0 makers))
+
+(define (loop-evt maker0 . makers)
+  (loop-evt* maker0 makers))
+
+;; (define (seq-evt evt . rest)
+;;   (foldl (λ (proc evt*) (replace-evt evt* proc)) evt rest))
+
+;; (define-syntax-rule (loop-evt evt rest ...)
+;;   (letrec ([args (list evt rest ...)]
+;;            [loop (λ _ (apply seq-evt (append args (list loop))))])
+;;     (loop)))
 
 (define-syntax bind
   (syntax-rules ()
