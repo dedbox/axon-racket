@@ -26,8 +26,8 @@
 
 (define (bridge π1 π2 [on-stop stop] [on-die void])
   (filter
-   (λ () (sync (loop-evt (recv-evt π1) (msg) (give-evt π2 msg))
-               (loop-evt (recv-evt π2) (msg) (give-evt π1 msg))
+   (λ () (sync (loop-evt (recv-evt π1) (λ (msg) (give-evt π2 msg)))
+               (loop-evt (recv-evt π2) (λ (msg) (give-evt π1 msg)))
                π1 π2))
    (λ () (on-stop π1) (on-stop π2))
    (λ () (on-die π1) (on-die π2))))
@@ -35,8 +35,8 @@
 (define (proxy π [on-take fix] [on-emit fix] [on-stop void] [on-die void])
   (filter
    (λ ()
-     (sync (loop-evt (take-evt) (msg) (give-evt π (on-take msg)))
-           (loop-evt (recv-evt π) (msg) (emit-evt (on-emit msg)))
+     (sync (loop-evt (take-evt) (λ (msg) (give-evt π (on-take msg))))
+           (loop-evt (recv-evt π) (λ (msg) (emit-evt (on-emit msg))))
            π))
    (λ () (stop π) (on-stop))
    (λ () (kill π) (on-die))))
