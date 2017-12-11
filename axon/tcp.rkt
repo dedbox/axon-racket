@@ -13,12 +13,15 @@
          axon/filter
          axon/internal
          axon/process
+         net2/data
          racket/tcp)
 
 ;; Client
 
-(define (tcp-client codec-factory [server-addr '("localhost" 3600)])
-  (define σ (apply-values (apply tcp-connect server-addr) codec-factory))
+(define (tcp-client make-codec [remote (authority "localhost:3600")])
+  (define host (authority-host remote))
+  (define port (authority-port remote))
+  (define σ (apply-values (tcp-connect host port) make-codec))
   (define addr (apply-values (tcp-addresses (codec-in-port σ) #t) list))
   (commanded σ (bind ([ADDRESSES addr])
                      ([msg (command σ msg)]))))
