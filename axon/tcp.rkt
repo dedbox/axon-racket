@@ -13,7 +13,7 @@
          axon/filter
          axon/internal
          axon/process
-         net2/data
+         axon/net2/data
          racket/tcp)
 
 ;; Client
