@@ -14,14 +14,15 @@
          axon/internal
          axon/process
          axon/net2/data
+         racket/format
          racket/tcp)
 
 ;; Client
 
-(define (tcp-client make-codec [remote (authority "localhost:3600")])
-  (define host (authority-host remote))
-  (define port (authority-port remote))
-  (define σ (apply-values (tcp-connect host port) make-codec))
+(define (tcp-client make-codec [a-remote (authority "localhost.:3600")])
+  (define σ (let ([host (authority-host a-remote)]
+                  [port (authority-port a-remote)])
+              (apply-values (tcp-connect (~a host) port) make-codec)))
   (define addr (apply-values (tcp-addresses (codec-in-port σ) #t) list))
   (commanded σ (bind ([ADDRESSES addr])
                      ([msg (command σ msg)]))))
@@ -50,15 +51,15 @@
 
 ;; Server
 
-(define (tcp-server codec-factory [server-addr '(#f 3600)])
-  (define server-host (car server-addr))
-  (define server-port (cadr server-addr))
-  (define listener (tcp-listen server-port 10 #t server-host))
+(define (tcp-server make-codec [a-local (authority "[::]:3600")])
+  (define listener (let ([host (authority-host a-local)]
+                         [port (authority-port a-local)])
+                     (tcp-listen port 10 #t (~a host))))
   (commanded
-    (source (λ () (apply-values (tcp-accept listener) codec-factory))
+    (source (λ () (apply-values (tcp-accept listener) make-codec))
             void
             (λ () (tcp-close listener)))
-    (bind ([ADDR server-addr]))))
+    (bind ([ADDR a-local]))))
 
 (define (tcp-server-address π)
   (command π 'ADDR))
@@ -71,15 +72,15 @@
 
 ;; Service
 
-(define (tcp-service codec-factory peer-factory [server-addr '(#f 3600)]
+(define (tcp-service make-codec make-peer [a-local (authority "[::]:3600")]
                      [on-stop void] [on-die void])
-  (define server (tcp-server codec-factory server-addr))
+  (define server (tcp-server make-codec a-local))
   (define peers (make-hash))
 
   (define (start-peer σ)
     (define in-port (codec-in-port σ))
     (define addr (apply-values (tcp-addresses in-port #t) list))
-    (hash-set! peers addr (bridge (peer-factory addr) σ)))
+    (hash-set! peers addr (bridge (make-peer addr) σ)))
 
   (define (stop-peer addr)
     (or (and (hash-has-key? peers addr)
