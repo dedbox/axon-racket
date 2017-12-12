@@ -182,16 +182,19 @@
 ;;; Authorities
 
 (struct authority (host port)
-        #:transparent #:omit-define-syntaxes #:constructor-name make-authority)
-
-(define (tok . strs)
-  (string-join (append (cons "(?:" strs) (list ")")) ""))
-
-(define ALPHA "[A-Za-z]")
-(define DIGIT "[0-9]")
-(define HEXDIG "[0-9A-Fa-f]")
+        #:transparent #:omit-define-syntaxes #:constructor-name make-authority
+        #:methods gen:custom-write
+        [(define write-proc
+           (make-printer "authority" (λ (a) (authority->string a))))])
 
 (define (authority str)
+  (define (tok . strs)
+    (string-join (append (cons "(?:" strs) (list ")")) ""))
+
+  (define ALPHA "[A-Za-z]")
+  (define DIGIT "[0-9]")
+  (define HEXDIG "[0-9A-Fa-f]")
+
   (define unreserved (tok ALPHA "|" DIGIT "|[-._~]"))
   (define sub-delims "[!$&'()*+,;=]")
 
@@ -244,7 +247,8 @@
 (define (authority->string a)
   (define host (authority-host a))
   (define port (authority-port a))
-  (if port (~a host ":" port) (~a host)))
+  (define host-str (if (ip6? host) (~a "[" host "]") (~a host)))
+  (if port (~a host-str ":" port) host-str))
 
 ;;; URIs
 
