@@ -36,6 +36,7 @@
   ;; Contract Utilities
   [bytes/c (-> exact-nonnegative-integer? flat-contract?)]))
 
+;; Prints a struct as ``(<tag> "<serialize struct>")''
 (define (make-printer tag serialize)
   (λ (obj out-port mode)
     (define str (serialize obj))
