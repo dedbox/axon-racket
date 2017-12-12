@@ -13,9 +13,12 @@
   ;; IP Addresses
   [ip4 (-> string? ip4?)]
   [ip6 (-> string? ip6?)]
+  [ip4? predicate/c]
+  [ip6? predicate/c]
   ;; Registered Names
   [struct reg-name ()]
   [dns (-> string? dns?)]
+  [dns? predicate/c]
   [struct unix-socket-name ((path (and/c unix-socket-path? complete-path?)))]
   ;; Authorities
   [authority (-> string? authority?)]
