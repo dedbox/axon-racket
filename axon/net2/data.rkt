@@ -37,7 +37,7 @@
   [bytes/c (-> exact-nonnegative-integer? flat-contract?)]))
 
 ;; Writes and prints a struct as ``(<tag> "<serialize struct>")''.
-;; Displays a struct asj <serialize struct>.
+;; Displays a struct as <serialize struct>.
 (define (make-printer tag serialize)
   (λ (obj out-port mode)
     (define str (serialize obj))
@@ -189,6 +189,8 @@
         [(define write-proc
            (make-printer "authority" (λ (a) (authority->string a))))])
 
+(define null-authority (make-authority #f #f))
+
 (define (authority str)
   (define (tok . strs)
     (string-join (append (cons "(?:" strs) (list ")")) ""))
@@ -236,6 +238,7 @@
     (substring str 1 (- (string-length str) 1)))
 
   (match str
+    ["" null-authority]
     [(pregexp
       (tok "^(" IP-literal "|" IPv4address "|" reg-name ")(?::(" DIGIT "+))?")
       (list _ host port))
@@ -255,28 +258,42 @@
 ;;; URIs
 
 (struct uri (scheme authority path query fragment)
-        #:transparent #:omit-define-syntaxes #:constructor-name make-uri)
-
-(define uri-regexp
-  (pregexp
-   ;; Adapted from RFC 3986, Appendix B.
-   (string-join '("^"
-                  "(?:([^:/?#]+):)?"    ;scheme
-                  "(?://([^/?#]*))?"    ;authority
-                  "([^?#]*)"            ;path
-                  "(?:\\?([^#]*))?"     ;query
-                  "(?:#(.*))?"          ;fragment
-                  )
-                "")))
+        #:transparent #:omit-define-syntaxes #:constructor-name make-uri
+        #:methods gen:custom-write
+        [(define write-proc (make-printer "uri" (λ (u) (uri->string u))))])
 
 (define (uri str)
-  (define parts (regexp-match uri-regexp str))
-  (unless parts (raise 'URI-SYNTAX))
-  (make-uri (car parts)                 ;scheme
-            (authority (cadr parts))    ;authority
-            (caddr parts)               ;path
-            (cadddr parts)              ;query
-            (car (cddddr parts))))      ;fragment
+  ;; Adapted from RFC 3986, Appendix B.
+  (define pat
+    (pregexp
+     (string-join (list "^"
+                        "(?:([^:/?#]+):)?" ;scheme
+                        "(?://([^/?#]*))?" ;authority
+                        "([^?#]*)"         ;path
+                        "(?:\\?([^#]*))?"  ;query
+                        "(?:#(.*))?")      ;fragment
+                  "")))
+  (define parts (or (regexp-match pat str) (raise 'URI-SYNTAX)))
+  (make-uri (cadr parts)                ;scheme
+            (authority (caddr parts))   ;authority
+            (cadddr parts)              ;path
+            (car (cddddr parts))        ;query
+            (cadr (cddddr parts))))     ;fragment
+
+(define (uri->string u)
+  (define (part->string part #:< [pre ""] #:> [post ""])
+    (if part (~a pre part post) ""))
+  (~a (part->string (uri-scheme u) #:> ":")
+      (part->string #:< "//" (uri-authority u))
+      (part->string #:< "/" (uri-path u))
+      (part->string #:< "?" (uri-query u))
+      (part->string #:< "#" (uri-fragment u))))
+
+(define (uri-host u)
+  (and (uri-authority u) (authority-host (uri-authority u))))
+
+(define (uri-port u)
+  (and (uri-authority u) (authority-port (uri-authority u))))
 
 ;;; Contract Utilities
 
