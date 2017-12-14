@@ -19,10 +19,10 @@
 
 ;; Client
 
-(define (tcp-client make-codec [a-remote (authority "localhost.:3600")])
+(define (tcp-client make-codec [a-remote (string->authority "localhost:3600")])
   (define σ (let ([host (authority-host a-remote)]
                   [port (authority-port a-remote)])
-              (apply-values (tcp-connect (~a host) port) make-codec)))
+              (apply-values (tcp-connect (host->string host) port) make-codec)))
   (define addr (apply-values (tcp-addresses (codec-in-port σ) #t) list))
   (commanded σ (bind ([ADDRESSES addr])
                      ([msg (command σ msg)]))))
@@ -51,10 +51,10 @@
 
 ;; Server
 
-(define (tcp-server make-codec [a-local (authority "[::]:3600")])
+(define (tcp-server make-codec [a-local (string->authority "[::]:3600")])
   (define listener (let ([host (authority-host a-local)]
                          [port (authority-port a-local)])
-                     (tcp-listen port 10 #t (~a host))))
+                     (tcp-listen port 10 #t (host->string host))))
   (commanded
     (source (λ () (apply-values (tcp-accept listener) make-codec))
             void
@@ -72,8 +72,11 @@
 
 ;; Service
 
-(define (tcp-service make-codec make-peer [a-local (authority "[::]:3600")]
-                     [on-stop void] [on-die void])
+(define (tcp-service make-codec
+                     make-peer
+                     [a-local (string->authority "[::]:3600")]
+                     [on-stop void]
+                     [on-die void])
   (define server (tcp-server make-codec a-local))
   (define peers (make-hash))
 

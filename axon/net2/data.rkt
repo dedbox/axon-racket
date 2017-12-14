@@ -10,74 +10,142 @@
 
 (provide
  (contract-out
-  ;; IP Addresses
-  [ip4 (-> string? ip4?)]
-  [ip6 (-> string? ip6?)]
-  [ip4? predicate/c]
-  [ip6? predicate/c]
-  ;; Registered Names
-  [struct reg-name ()]
-  [dns (-> string? dns?)]
-  [dns? predicate/c]
-  [struct unix-socket-name ((path (and/c unix-socket-path? complete-path?)))]
-  ;; Authorities
-  [authority (-> string? authority?)]
-  [authority? predicate/c]
-  [authority-host (-> authority? (or/c ip6? ip4? reg-name?))]
-  [authority-port (-> authority? port-number?)]
-  ;; URIs
-  [uri (-> string? uri?)]
-  [uri? predicate/c]
-  [uri-scheme (-> uri? (or/c string? #f))]
-  [uri-authority (-> uri? (or/c authority? #f))]
-  [uri-path (-> uri? (or/c string? #f))]
-  [uri-query (-> uri? (or/c string? #f))]
-  [uri-fragment (-> uri? (or/c string? #f))]
-  ;; Contract Utilities
+  [struct host ()]
+  [string->host (-> string? host?)]
+  [host->string (-> host? string?)]
+  [struct reg-name ([bytes bytes?])]
+  [string->reg-name (-> string? reg-name?)]
+  [reg-name->string (-> reg-name? string?)]
+  [struct ip4 ([bytes (bytes/c 4)])]
+  [string->ip4 (-> string? ip4?)]
+  [ip4->string (-> ip4? string?)]
+  [struct ip6 ([bytes (bytes/c 4)])]
+  [string->ip6 (-> string? ip6?)]
+  [ip6->string (-> ip6? string?)]
+  [struct dns ([labels string?])]
+  [string->dns (-> string? dns?)]
+  [dns->string (-> dns? string?)]
+  [struct unix-socket-name ([path (and/c unix-socket-path? complete-path?)])]
+  [struct authority ([host host?]
+                     [port port-number?])]
+  [string->authority (-> string? authority?)]
+  [authority->string (-> authority? string?)]
+  [struct uri ([scheme (or/c string? #f)]
+               [authority (or/c authority? #f)]
+               [path (or/c string? #f)]
+               [query (or/c string? #f)]
+               [fragment (or/c string? #f)])]
+  [string->uri (-> string? uri?)]
+  [uri->string (-> uri? string?)]
   [bytes/c (-> exact-nonnegative-integer? flat-contract?)]))
 
-;; Writes and prints a struct as ``(<tag> "<serialize struct>")''.
-;; Displays a struct as <serialize struct>.
-(define (make-printer tag serialize)
-  (λ (obj out-port mode)
-    (define str (serialize obj))
-    (when mode
-      (write-string "(" out-port)
-      (write-string tag out-port)
-      (write-string " " out-port))
-    (cond [(number? mode) (print str out-port mode)]
-          [(not mode) (display str out-port)]
-          [else (write str out-port)])
-    (when mode
-      (write-string ")" out-port))))
+;;; patterns
 
-;;; IP Addresses
+(module patterns racket/base
+  (provide (all-defined-out))
 
-;; IPv4
+  (require racket/format)
 
-(struct ip4 (bytes)
-        #:transparent #:omit-define-syntaxes #:constructor-name make-ip4
-        #:methods gen:custom-write
-        [(define write-proc (make-printer "ip4" (λ (ip) (ip4->string ip))))])
+  (define (tok . strs)
+    (apply ~a (append (cons "(?:" strs) (list ")"))))
 
-(define (ip4 str)
+  (define ALPHA "[A-Za-z]")
+  (define DIGIT "[0-9]")
+  (define HEXDIG "[0-9A-Fa-f]")
+
+  (define unreserved (tok ALPHA "|" DIGIT "|[-._~]"))
+  (define sub-delims "[!$&'()*+,;=]")
+
+  (define IPv4address
+    ;; "|" takes first match instead of longest
+    (let ([dec-octet (tok "1" DIGIT DIGIT
+                          "|2[0-4]" DIGIT
+                          "|25[0-5]"
+                          "|[1-9]" DIGIT
+                          "|" DIGIT)])
+      (tok dec-octet (tok "\\." dec-octet) "{3}")))
+
+  (define IPv6address
+    (let* ([h16 (tok HEXDIG "{1,4}")]
+           [h16: (tok h16 ":")]
+           [h16:* (λ (X) (tok h16: "{" X "}"))]
+           [ls32 (tok h16: h16 "|" IPv4address)])
+      (tok                                  (h16:* "6") ls32
+           "|::"                            (h16:* "5") ls32
+           "|"       h16              "?::" (h16:* "4") ls32
+           "|" (tok (h16:* ",1") h16) "?::" (h16:* "3") ls32
+           "|" (tok (h16:* ",2") h16) "?::" (h16:* "2") ls32
+           "|" (tok (h16:* ",3") h16) "?::"  h16:       ls32
+           "|" (tok (h16:* ",4") h16) "?::"             ls32
+           "|" (tok (h16:* ",5") h16) "?::"  h16
+           "|" (tok (h16:* ",6") h16) "?::")))
+
+  ;; TODO what's the deal with IPvFuture?
+  (define IPv6literal (tok "\\[" IPv6address "\\]"))
+
+  (define reg-name
+    (let ([pct-encoded (tok "%" HEXDIG HEXDIG)])
+      (tok (tok unreserved "|" pct-encoded "|" sub-delims) "+")))
+
+  
+  ;; Adapted from RFC 3986, Appendix B.
+  (define uri (tok "(?:([^:/?#]+):)?"   ;scheme
+                   "(?://([^/?#]*))?"   ;authority
+                   "([^?#]*)"           ;path
+                   "(?:\\?([^#]*))?"    ;query
+                   "(?:#(.*))?")))      ;fragment
+
+(require (prefix-in pat: 'patterns))
+
+;;; host
+
+(struct host () #:transparent)
+
+(define (string->host str)
+  (match str
+    ["" (raise 'HOST-EMPTY)]
+    [(pregexp (~a "^" pat:IPv4address "$")) (string->ip4 str)]
+    [(pregexp (~a "^" pat:IPv6address "$")) (string->ip6 str)]
+    [(pregexp (~a "^" pat:reg-name "$")) (string->dns str)]
+    [else (string->reg-name str)]))
+
+(define (host->string host)
+  (cond [(ip4? host) (ip4->string host)]
+        [(ip6? host) (ip6->string host)]
+        [(dns? host) (dns->string host)]
+        [(reg-name? host) (reg-name->string host)]
+        [else (raise 'IMPOSSIBLE)]))
+
+;;; reg-name
+
+(struct reg-name host (bytes) #:transparent)
+
+(define (string->reg-name str)
+  (if (<= (string-utf-8-length str) 255)
+      (reg-name (string->bytes/utf-8 str))
+      (raise 'REG-NAME-TOO-LONG)))
+
+(define (reg-name->string rn)
+  (bytes->string/utf-8 (reg-name-bytes rn)))
+
+;;; ip4
+
+(struct ip4 host (bytes) #:transparent)
+
+(define (string->ip4 str)
   (define pat #px"^([^.]+)\\.([^.]+)\\.([^.]+)\\.([^.]+)$")
   (define octets (cdr (or (regexp-match pat str) (raise 'IP4-SYNTAX))))
-  (make-ip4 (apply bytes (map string->number octets))))
+  (ip4 (apply bytes (map string->number octets))))
 
 (define (ip4->string ip)
   (string-join (map number->string (bytes->list (ip4-bytes ip))) "."))
 
-;; IPv6
+;;; ip6
 
-(struct ip6
-  (bytes)
-  #:transparent #:omit-define-syntaxes #:constructor-name make-ip6
-  #:methods gen:custom-write
-  [(define write-proc (make-printer "ip6" (λ (ip) (ip6->string ip))))])
+(struct ip6 host (bytes) #:transparent)
 
 ;; TODO add IPv4-Embedded IPv6 Addresses
-(define (ip6 str)
+(define (string->ip6 str)
   (define sec (string-split str "::" #:trim? #f))
   (define lhs (string-split (car sec) ":"))
   (define rhs (if (null? (cdr sec)) null (string-split (cadr sec) ":")))
@@ -89,7 +157,7 @@
   (define lhs-bs (map word->bytes lhs))
   (define rhs-bs (map word->bytes rhs))
   (define mid-bs (make-list (- 8 (+ (length lhs) (length rhs))) (list 0 0)))
-  (make-ip6 (apply bytes (flatten (list lhs-bs mid-bs rhs-bs)))))
+  (ip6 (apply bytes (flatten (list lhs-bs mid-bs rhs-bs)))))
 
 ;; Ripped from RFC 5952,
 ;;
@@ -138,23 +206,7 @@
 
   (string-join (shortened parts (most-zeros parts)) ":"))
 
-;;; Abstract Registered Names
-
-(struct reg-name () #:transparent)
-
-(define reg-name->string void)
-
-;;; DNS Names
-
-(struct dns reg-name (host)
-        #:transparent #:omit-define-syntaxes #:constructor-name make-dns
-        #:methods gen:custom-write
-        [(define write-proc (make-printer "dns" (λ (d) (dns-host d))))])
-
-(define (dns str)
-  (if (> (string-utf-8-length str) 255)
-      (raise 'DNS-TOO-LONG)
-      (make-dns str)))
+;;; dns
 
 ;; Notes on RFC 1034, section 3.1:
 ;;
@@ -168,117 +220,69 @@
 ;; - to print, drop length bytes and join labels by "."
 ;; - max domain name length is 255 bytes
 
-(define example. (dns "example."))
-(define example.com. (dns "example.com."))
-(define example.net. (dns "example.net."))
-(define example.org. (dns "example.org."))
-(define invalid. (dns "invalid."))
-(define local. (dns "local."))
-(define localhost. (dns "localhost."))
-(define test. (dns "test."))
+(struct dns host (labels) #:transparent)
 
-;;; Unix Socket Names
+(define (string->dns str)
+  (if (> (string-utf-8-length str) 255)
+      (raise 'DNS-TOO-LONG)
+      (dns str)))
 
-(struct unix-socket-name reg-name (path) #:transparent)
+(define (dns->string d)
+  (dns-labels d))
 
-;;; Authorities
+(define example. (string->dns "example."))
+(define example.com. (string->dns "example.com."))
+(define example.net. (string->dns "example.net."))
+(define example.org. (string->dns "example.org."))
+(define invalid. (string->dns "invalid."))
+(define local. (string->dns "local."))
+(define localhost. (string->dns "localhost."))
+(define test. (string->dns "test."))
 
-(struct authority (host port)
-        #:transparent #:omit-define-syntaxes #:constructor-name make-authority
-        #:methods gen:custom-write
-        [(define write-proc
-           (make-printer "authority" (λ (a) (authority->string a))))])
+;;; unix-socket-name
 
-(define null-authority (make-authority #f #f))
+(struct unix-socket-name host (path) #:transparent)
 
-(define (authority str)
-  (define (tok . strs)
-    (string-join (append (cons "(?:" strs) (list ")")) ""))
+;;; authority
 
-  (define ALPHA "[A-Za-z]")
-  (define DIGIT "[0-9]")
-  (define HEXDIG "[0-9A-Fa-f]")
+(struct authority (host port) #:transparent)
 
-  (define unreserved (tok ALPHA "|" DIGIT "|[-._~]"))
-  (define sub-delims "[!$&'()*+,;=]")
+(define (string->authority str)
+  (define (P pat)
+    (~a "^(" pat ")(?::(" pat:DIGIT "+))?$"))
 
-  (define IPv4address
-    ;; "|" takes first match instead of longest
-    (let ([dec-octet (tok "1" DIGIT DIGIT
-                          "|2[0-4]" DIGIT
-                          "|25[0-5]"
-                          "|[1-9]" DIGIT
-                          "|" DIGIT)])
-      (tok dec-octet (tok "\\." dec-octet) "{3}")))
+  (define (Q host-str)
+    (substring host-str 1 (- (string-length host-str) 1)))
 
-  (define reg-name
-    (let ([pct-encoded (tok "%" HEXDIG HEXDIG)])
-      (tok (tok unreserved "|" pct-encoded "|" sub-delims) "+")))
-
-  (define IP-literal
-    (let ([IPv6address
-           (let* ([h16 (tok HEXDIG "{1,4}")]
-                  [h16: (tok h16 ":")]
-                  [h16:* (λ (X) (tok h16: "{" X "}"))]
-                  [ls32 (tok h16: h16 "|" IPv4address)])
-             (tok                                  (h16:* "6") ls32
-                  "|::"                            (h16:* "5") ls32
-                  "|"       h16              "?::" (h16:* "4") ls32
-                  "|" (tok (h16:* ",1") h16) "?::" (h16:* "3") ls32
-                  "|" (tok (h16:* ",2") h16) "?::" (h16:* "2") ls32
-                  "|" (tok (h16:* ",3") h16) "?::"  h16:       ls32
-                  "|" (tok (h16:* ",4") h16) "?::"             ls32
-                  "|" (tok (h16:* ",5") h16) "?::"  h16
-                  "|" (tok (h16:* ",6") h16) "?::"))]
-          [IPvFuture
-           (tok "v" HEXDIG "+\\." (tok unreserved "|" sub-delims "|:") "+")])
-      (tok "\\[" (tok IPv6address "|" IPvFuture) "\\]")))
-
-  (define (de-bracket str)
-    (substring str 1 (- (string-length str) 1)))
+  (define (make host port)
+    (authority (string->host host) (and port (string->number port))))
 
   (match str
-    ["" null-authority]
-    [(pregexp
-      (tok "^(" IP-literal "|" IPv4address "|" reg-name ")(?::(" DIGIT "+))?")
-      (list _ host port))
-     (make-authority (match host
-                       [(pregexp IPv4address) (ip4 host)]
-                       [(pregexp IP-literal) (ip6 (de-bracket host))]
-                       [(pregexp reg-name) (dns host)])
-                     (and port (string->number port)))]
+    ["" #f]
+    [(pregexp (P pat:IPv4address) (list _ host port)) (make host port)]
+    [(pregexp (P pat:IPv6literal) (list _ host port)) (make (Q host) port)]
+    [(pregexp (P pat:reg-name) (list _ host port)) (make host port)]
     [_ (raise 'AUTHORITY-SYNTAX)]))
 
 (define (authority->string a)
   (define host (authority-host a))
   (define port (authority-port a))
-  (define host-str (if (ip6? host) (~a "[" host "]") (~a host)))
-  (if port (~a host-str ":" port) host-str))
+  (~a (if (ip6? host) (~a "[" (host->string host) "]") (host->string host))
+      (if port (~a ":" port) "")))
 
-;;; URIs
+;;; uri
 
-(struct uri (scheme authority path query fragment)
-        #:transparent #:omit-define-syntaxes #:constructor-name make-uri
-        #:methods gen:custom-write
-        [(define write-proc (make-printer "uri" (λ (u) (uri->string u))))])
+(struct uri (scheme authority path query fragment) #:transparent)
 
-(define (uri str)
-  ;; Adapted from RFC 3986, Appendix B.
-  (define pat
-    (pregexp
-     (string-join (list "^"
-                        "(?:([^:/?#]+):)?" ;scheme
-                        "(?://([^/?#]*))?" ;authority
-                        "([^?#]*)"         ;path
-                        "(?:\\?([^#]*))?"  ;query
-                        "(?:#(.*))?")      ;fragment
-                  "")))
-  (define parts (or (regexp-match pat str) (raise 'URI-SYNTAX)))
-  (make-uri (cadr parts)                ;scheme
-            (authority (caddr parts))   ;authority
-            (cadddr parts)              ;path
-            (car (cddddr parts))        ;query
-            (cadr (cddddr parts))))     ;fragment
+(define (string->uri str)
+  (match str
+    [(pregexp (~a "^" pat:uri "$") parts)
+     (uri (cadr parts)                  ;scheme
+          (string->authority (caddr parts))
+          (cadddr parts)                ;path
+          (car (cddddr parts))          ;query
+          (cadr (cdddr parts)))]        ;fragment
+    [_ (raise 'URI-SYNTAX)]))
 
 (define (uri->string u)
   (define (part->string part #:< [pre ""] #:> [post ""])
@@ -295,7 +299,7 @@
 (define (uri-port u)
   (and (uri-authority u) (authority-port (uri-authority u))))
 
-;;; Contract Utilities
+;;; contract utilities
 
 (define (bytes/c n)
   (and/c bytes? immutable? (λ (bs) (= (bytes-length bs) n))))
