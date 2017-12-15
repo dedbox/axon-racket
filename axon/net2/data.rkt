@@ -46,54 +46,54 @@
 
   (require racket/format)
 
-  (define (tok . strs)
+  ;; "T" for token
+  (define (T . strs)
     (apply ~a (append (cons "(?:" strs) (list ")"))))
 
   (define ALPHA "[A-Za-z]")
   (define DIGIT "[0-9]")
   (define HEXDIG "[0-9A-Fa-f]")
 
-  (define unreserved (tok ALPHA "|" DIGIT "|[-._~]"))
+  (define unreserved (T ALPHA "|" DIGIT "|[-._~]"))
+  (define pct-encoded (T "%" HEXDIG HEXDIG))
   (define sub-delims "[!$&'()*+,;=]")
 
   (define IPv4address
     ;; "|" takes first match instead of longest
-    (let ([dec-octet (tok "1" DIGIT DIGIT
-                          "|2[0-4]" DIGIT
-                          "|25[0-5]"
-                          "|[1-9]" DIGIT
-                          "|" DIGIT)])
-      (tok dec-octet (tok "\\." dec-octet) "{3}")))
+    (let ([dec-octet (T "1" DIGIT DIGIT
+                        "|2[0-4]" DIGIT
+                        "|25[0-5]"
+                        "|[1-9]" DIGIT
+                        "|" DIGIT)])
+      (T dec-octet (T "\\." dec-octet) "{3}")))
 
   (define IPv6address
-    (let* ([h16 (tok HEXDIG "{1,4}")]
-           [h16: (tok h16 ":")]
-           [h16:* (λ (X) (tok h16: "{" X "}"))]
-           [ls32 (tok h16: h16 "|" IPv4address)])
-      (tok                                  (h16:* "6") ls32
-           "|::"                            (h16:* "5") ls32
-           "|"       h16              "?::" (h16:* "4") ls32
-           "|" (tok (h16:* ",1") h16) "?::" (h16:* "3") ls32
-           "|" (tok (h16:* ",2") h16) "?::" (h16:* "2") ls32
-           "|" (tok (h16:* ",3") h16) "?::"  h16:       ls32
-           "|" (tok (h16:* ",4") h16) "?::"             ls32
-           "|" (tok (h16:* ",5") h16) "?::"  h16
-           "|" (tok (h16:* ",6") h16) "?::")))
+    (let* ([h16 (T HEXDIG "{1,4}")]
+           [h16: (T h16 ":")]
+           [h16:* (λ (X) (T h16: "{" X "}"))]
+           [ls32 (T h16: h16 "|" IPv4address)])
+      (T                                (h16:* "6") ls32
+         "|::"                          (h16:* "5") ls32
+         "|"     h16              "?::" (h16:* "4") ls32
+         "|" (T (h16:* ",1") h16) "?::" (h16:* "3") ls32
+         "|" (T (h16:* ",2") h16) "?::" (h16:* "2") ls32
+         "|" (T (h16:* ",3") h16) "?::"  h16:       ls32
+         "|" (T (h16:* ",4") h16) "?::"             ls32
+         "|" (T (h16:* ",5") h16) "?::"  h16
+         "|" (T (h16:* ",6") h16) "?::")))
 
   ;; TODO what's the deal with IPvFuture?
-  (define IPv6literal (tok "\\[" IPv6address "\\]"))
+  (define IPv6literal (T "\\[" IPv6address "\\]"))
 
   (define reg-name
-    (let ([pct-encoded (tok "%" HEXDIG HEXDIG)])
-      (tok (tok unreserved "|" pct-encoded "|" sub-delims) "+")))
-
+    (T (T unreserved "|" pct-encoded "|" sub-delims) "+"))
   
   ;; Adapted from RFC 3986, Appendix B.
-  (define uri (tok "(?:([^:/?#]+):)?"   ;scheme
-                   "(?://([^/?#]*))?"   ;authority
-                   "([^?#]*)"           ;path
-                   "(?:\\?([^#]*))?"    ;query
-                   "(?:#(.*))?")))      ;fragment
+  (define uri (T "(?:([^:/?#]+):)?"   ;scheme
+                 "(?://([^/?#]*))?"   ;authority
+                 "([^?#]*)"           ;path
+                 "(?:\\?([^#]*))?"    ;query
+                 "(?:#(.*))?")))      ;fragment
 
 (require (prefix-in pat: 'patterns))
 
